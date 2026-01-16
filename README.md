@@ -1,4 +1,4 @@
-# Workout Tracking 🏋️‍♂️
+# Workout Tracking 
 
 A lightweight workout logging app built with Streamlit for recording training sessions and reviewing past workouts.
 
