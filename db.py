@@ -29,7 +29,7 @@ def init_db(conn: sqlite3.Connection):
     conn.commit()
 
 
-def sign_in_or_create(conn: sqlite3.Connection, user: str, pin: str) -> bool:
+def sign_in_or_create(conn: sqlite3.Connection, user, pin) :
     row = conn.execute("SELECT pin FROM users WHERE user=?", (user,)).fetchone()
     if row is None:
         conn.execute("INSERT INTO users(user, pin) VALUES (?, ?)", (user, pin))
@@ -38,7 +38,7 @@ def sign_in_or_create(conn: sqlite3.Connection, user: str, pin: str) -> bool:
     return row[0] == pin
 
 
-def add_log(conn: sqlite3.Connection, user: str, day: str, exercise: str, weight: float, reps: int):
+def add_log(conn: sqlite3.Connection, user, day, exercise, weight, reps):
     conn.execute(
         "INSERT INTO logs(user, day, exercise, weight, reps) VALUES (?, ?, ?, ?, ?)",
         (user, day, exercise, float(weight), int(reps)),
@@ -46,7 +46,7 @@ def add_log(conn: sqlite3.Connection, user: str, day: str, exercise: str, weight
     conn.commit()
 
 
-def get_recent_logs(conn: sqlite3.Connection, user: str, limit: int = 50):
+def get_recent_logs(conn: sqlite3.Connection, user, limit: int = 50):
     return conn.execute(
         """
         SELECT id, day, exercise, weight, reps
@@ -59,12 +59,12 @@ def get_recent_logs(conn: sqlite3.Connection, user: str, limit: int = 50):
     ).fetchall()
 
 
-def delete_log(conn: sqlite3.Connection, user: str, log_id: int):
+def delete_log(conn: sqlite3.Connection, user, log_id):
     conn.execute("DELETE FROM logs WHERE user=? AND id=?", (user, int(log_id)))
     conn.commit()
 
 
-def list_exercises(conn: sqlite3.Connection, user: str):
+def list_exercises(conn: sqlite3.Connection, user):
     rows = conn.execute(
         "SELECT DISTINCT exercise FROM logs WHERE user=? ORDER BY exercise",
         (user,),
@@ -72,7 +72,7 @@ def list_exercises(conn: sqlite3.Connection, user: str):
     return [r[0] for r in rows]
 
 
-def get_logs_by_exercise(conn: sqlite3.Connection, user: str, exercise: str):
+def get_logs_by_exercise(conn: sqlite3.Connection, user, exercise):
     return conn.execute(
         """
         SELECT id, day, weight, reps
@@ -84,7 +84,7 @@ def get_logs_by_exercise(conn: sqlite3.Connection, user: str, exercise: str):
     ).fetchall()
 
 
-def list_dates(conn: sqlite3.Connection, user: str):
+def list_dates(conn: sqlite3.Connection, user):
     rows = conn.execute(
         "SELECT DISTINCT day FROM logs WHERE user=? ORDER BY day DESC",
         (user,),
@@ -92,7 +92,7 @@ def list_dates(conn: sqlite3.Connection, user: str):
     return [r[0] for r in rows]
 
 
-def get_logs_by_date(conn: sqlite3.Connection, user: str, day: str):
+def get_logs_by_date(conn: sqlite3.Connection, user, day):
     return conn.execute(
         """
         SELECT id, exercise, weight, reps
@@ -102,4 +102,5 @@ def get_logs_by_date(conn: sqlite3.Connection, user: str, day: str):
         """,
         (user, day),
     ).fetchall()
+
 
