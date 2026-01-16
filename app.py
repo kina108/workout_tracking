@@ -1,113 +1,142 @@
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
 from datetime import date
+from collections import Counter
+import streamlit as st
 
-import tracker as db
+from db import (
+    get_conn, init_db, sign_in_or_create,
+    add_log, get_recent_logs, delete_log,
+    list_exercises, get_logs_by_exercise,
+    list_dates, get_logs_by_date
+)
 
-st.set_page_config(page_title="Expense Tracker", layout="centered")
-db.create_table()
 
-st.title("💸 Expense Tracker")
+st.set_page_config(
+    page_title="Workout Log",
+    layout="centered",
+    initial_sidebar_state="expanded",
+)
 
-st.subheader("Add an expense")
+st.title("Workout Log")
+st.caption("Private & Simple Tracking")
 
-with st.form("add_expense", clear_on_submit=True):
-    expense_date = st.date_input("Date", value=date.today())
-    category = st.text_input("Category", placeholder="Food, Transport, etc.")
-    amount = st.number_input("Amount", min_value=0.0, step=0.01)
-    submitted = st.form_submit_button("Add")
+conn = get_conn()
+init_db(conn)
 
-if submitted:
-    if category.strip() == "":
-        st.error("Category cannot be empty")
+
+with st.sidebar:
+    st.header("Sign in / Create")
+    user = st.text_input("Username").strip()
+    pin = st.text_input("PIN", type="password").strip()
+
+    if not user or not pin:
+        st.info("Enter username and PIN to continue.")
+        st.stop()
+
+    if not sign_in_or_create(conn, user, pin):
+        st.error("Wrong PIN.")
+        st.stop()
+
+    st.success(f"Signed in as **{user}**")
+
+
+tab_log, tab_history, tab_ex, tab_date = st.tabs(
+    ["Log", "History", "By Exercise", "By Date"]
+)
+
+with tab_log:
+    st.subheader("Log a set")
+
+    with st.form("log_form", clear_on_submit=False):
+        day = st.date_input("Date", value=date.today())
+
+        existing = list_exercises(conn, user)
+        hint = "Keep names consistent."
+        if existing:
+            hint += " Existing: " + ", ".join(existing[:6]) + ("…" if len(existing) > 6 else "")
+
+        exercise = st.text_input("Exercise", value="Bench Press", help=hint)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            weight = st.number_input("Weight", min_value=0.0, value=20.0, step=2.5)
+        with c2:
+            reps = st.number_input("Reps", min_value=1, value=8, step=1)
+
+        submitted = st.form_submit_button("Add set", use_container_width=True)
+
+        if submitted:
+            if not exercise.strip():
+                st.error("Exercise cannot be empty.")
+            else:
+                add_log(conn, user, day.isoformat(), exercise.strip(), weight, int(reps))
+                st.success("Set logged.")
+                st.rerun()
+
+
+with tab_history:
+    st.subheader("Recent sets")
+
+    rows = get_recent_logs(conn, user, limit=50)
+    if not rows:
+        st.write("No entries yet.")
     else:
-        db.add_expense(expense_date.isoformat(), category.strip(), float(amount))
-        st.success("Expense added")
-        st.rerun()
+        table = [
+            {"ID": i, "Date": d, "Exercise": ex, "Weight": w, "Reps": r}
+            for i, d, ex, w, r in rows
+        ]
+        st.dataframe(table, use_container_width=True, hide_index=True)
 
+        st.divider()
+        st.subheader("Delete a set")
+        st.caption("This action cannot be undone.")
 
-st.subheader("All expenses (edit / delete)")
+        ids = [i for i, *_ in rows]
+        del_id = st.selectbox("Select ID to delete", ids)
 
-rows_all = db.get_all_expenses()
-
-if rows_all:
-    df_all = pd.DataFrame(rows_all, columns=["ID", "Date", "Category", "Amount"])
-    st.dataframe(df_all, use_container_width=True, hide_index=True)
-
-    expense_ids = df_all["ID"].tolist()
-
-    selected_id = st.selectbox("Select expense ID", expense_ids)
-
-
-    current = df_all[df_all["ID"] == selected_id].iloc[0]
-    current_date = current["Date"]
-    current_category = current["Category"]
-    current_amount = float(current["Amount"])
-
-    st.subheader("Update selected expense")
-
-    with st.form("update_expense"):
-        new_date = st.date_input("New date", value=pd.to_datetime(current_date).date())
-        new_category = st.text_input("New category", value=str(current_category))
-        new_amount = st.number_input("New amount", min_value=0.0, step=0.01, value=current_amount)
-
-        update_btn = st.form_submit_button("Update")
-
-    if update_btn:
-        if new_category.strip() == "":
-            st.error("Category cannot be empty")
-        else:
-            db.update_expense(
-                int(selected_id),
-                new_date.isoformat(),
-                new_category.strip(),
-                float(new_amount),
-            )
-            st.success("Expense updated")
+        if st.button("Delete selected set", type="secondary"):
+            delete_log(conn, user, del_id)
+            st.warning("Set deleted.")
             st.rerun()
 
+with tab_ex:
+    st.subheader("Exercise history")
 
-    st.subheader("Delete selected expense")
-
-    if st.button("Delete"):
-        db.delete_expense(int(selected_id))
-        st.success("Expense deleted")
-        st.rerun()
-
-else:
-    st.info("No expenses yet.")
-
-
-st.subheader("Monthly summary")
-
-month = st.text_input("Month (YYYY-MM)", value=date.today().strftime("%Y-%m"))
-
-if month:
-    total, rows = db.get_monthly_summary(month)
-
-    if rows:
-        df = pd.DataFrame(rows, columns=["Category", "Amount"])
-        st.dataframe(df, use_container_width=True, hide_index=True)
-
-        st.metric("Total spent", f"${total:.2f}")
-
-        fig, ax = plt.subplots()
-        ax.pie(df["Amount"], labels=df["Category"], autopct="%1.1f%%")
-        ax.set_title(f"Spending Breakdown ({month})")
-        st.pyplot(fig)
-
-
-        st.subheader("Spending over time")
-
-        daily_rows = db.get_daily_totals(month)
-        if daily_rows:
-            daily_df = pd.DataFrame(daily_rows, columns=["Date", "Total"])
-            daily_df["Date"] = pd.to_datetime(daily_df["Date"]).dt.strftime("%b %d")
-            daily_df = daily_df.sort_values("Date")
-
-            st.line_chart(daily_df.set_index("Date")["Total"])
-        else:
-            st.info("No daily spending data to plot.")
+    exercises = list_exercises(conn, user)
+    if not exercises:
+        st.info("Log some sets to view exercise history.")
     else:
-        st.info("No expenses recorded for this month.")
+        ex = st.selectbox("Exercise", exercises)
+        hist = get_logs_by_exercise(conn, user, ex)
+
+        st.caption(f"Total sets logged: {len(hist)}")
+
+        hist_table = [
+            {"ID": i, "Date": d, "Weight": w, "Reps": r}
+            for i, d, w, r in hist
+        ]
+        st.dataframe(hist_table, use_container_width=True, hide_index=True)
+
+
+with tab_date:
+    st.subheader("Workout by date")
+
+    dates = list_dates(conn, user)
+    if not dates:
+        st.info("Log some sets to view sessions by date.")
+    else:
+        chosen_day = st.selectbox("Date", dates)
+        day_rows = get_logs_by_date(conn, user, chosen_day)
+
+        counts = Counter(ex for _, ex, _, _ in day_rows)
+        summary = " • ".join(f"{ex}: {cnt} sets" for ex, cnt in counts.items())
+
+        st.caption(summary)
+        st.caption(f"Total sets: {len(day_rows)}")
+
+        day_table = [
+            {"ID": i, "Exercise": ex, "Weight": w, "Reps": r}
+            for i, ex, w, r in day_rows
+        ]
+        st.dataframe(day_table, use_container_width=True, hide_index=True)
+
+
